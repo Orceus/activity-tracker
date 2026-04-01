@@ -206,6 +206,76 @@ def check_last_alive():
         return False
 
 
+def _get_pc_name():
+    """Get the PC identifier (matches tracker's user_id format)."""
+    try:
+        from config import get_user_id
+        return get_user_id()
+    except Exception:
+        return f"user_{platform.node()}" if 'platform' in dir() else f"user_{os.environ.get('COMPUTERNAME', 'unknown')}"
+
+
+def _read_last_lines(file_path, n=100):
+    """Read last N lines of a file."""
+    try:
+        if not file_path.exists():
+            return ""
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+        return "".join(lines[-n:])
+    except Exception:
+        return ""
+
+
+def upload_logs_to_supabase():
+    """Upload tracker and controller logs to Supabase for remote monitoring."""
+    supabase_client = init_supabase_client()
+    if not supabase_client:
+        return
+
+    pc_name = _get_pc_name()
+    tracker_running = is_process_running('activity_tracker.exe')
+
+    # Read last_alive timestamp
+    alive_path = APP_DIR / 'last_alive.txt'
+    last_alive = None
+    try:
+        if alive_path.exists():
+            last_alive = alive_path.read_text().strip()
+    except Exception:
+        pass
+
+    # Upload tracker log
+    tracker_log = _read_last_lines(APP_DIR / 'tracker.log', 100)
+    if tracker_log:
+        try:
+            supabase_client.table("tracker_logs").insert({
+                'pc_name': pc_name,
+                'log_type': 'tracker',
+                'log_content': tracker_log,
+                'last_alive': last_alive,
+                'tracker_running': tracker_running,
+            }).execute()
+            logging.info("Uploaded tracker log to Supabase")
+        except Exception as e:
+            logging.error("Failed to upload tracker log: %s", e)
+
+    # Upload controller log
+    controller_log = _read_last_lines(APP_DIR / 'controller.log', 50)
+    if controller_log:
+        try:
+            supabase_client.table("tracker_logs").insert({
+                'pc_name': pc_name,
+                'log_type': 'controller',
+                'log_content': controller_log,
+                'last_alive': last_alive,
+                'tracker_running': tracker_running,
+            }).execute()
+            logging.info("Uploaded controller log to Supabase")
+        except Exception as e:
+            logging.error("Failed to upload controller log: %s", e)
+
+
 def main():
     # Hide console window
     if sys.platform == 'win32':
@@ -218,7 +288,9 @@ def main():
     time.sleep(60)
 
     last_batch_upload = time.time()
+    last_log_upload = time.time()
     batch_upload_interval = 180  # 3 minutes
+    log_upload_interval = 1800  # 30 minutes
 
     while True:
         try:
@@ -245,6 +317,14 @@ def main():
                 except Exception:
                     pass
                 last_batch_upload = current_time
+
+            # Upload logs to Supabase every 30 minutes
+            if current_time - last_log_upload >= log_upload_interval:
+                try:
+                    upload_logs_to_supabase()
+                except Exception:
+                    pass
+                last_log_upload = current_time
 
             time.sleep(30)
 
