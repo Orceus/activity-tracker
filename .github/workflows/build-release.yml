@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pyinstaller
-          pip install psutil pynput supabase pywin32
+          pip install psutil pynput supabase pywin32 certifi
 
       - name: Build tracker exe
         run: pyinstaller activity_tracker.spec --clean

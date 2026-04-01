@@ -73,6 +73,21 @@ def get_local_version():
     return "v0.0.0"
 
 
+def _get_ssl_context():
+    """Get an SSL context that works in PyInstaller builds."""
+    import ssl
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+    if sys.platform == 'win32':
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.load_default_certs()
+        return ctx
+    return ssl.create_default_context()
+
+
 def check_and_update():
     """Check GitHub for new release and auto-update if available."""
     try:
@@ -82,10 +97,11 @@ def check_and_update():
         local_version = get_local_version()
         logging.info("Checking for updates... current: %s", local_version)
 
+        ssl_ctx = _get_ssl_context()
         # Check latest release from GitHub API
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         req = urllib.request.Request(url, headers={"Accept": "application/vnd.github.v3+json"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15, context=ssl_ctx) as resp:
             release = json.loads(resp.read().decode())
 
         remote_version = release.get("tag_name", "")
@@ -127,7 +143,10 @@ def check_and_update():
         download_url = tracker_asset["browser_download_url"]
         temp_path = APP_DIR / 'activity_tracker.exe.tmp'
         logging.info("Downloading %s...", download_url)
-        urllib.request.urlretrieve(download_url, str(temp_path))
+        dl_req = urllib.request.Request(download_url)
+        with urllib.request.urlopen(dl_req, context=ssl_ctx) as dl_resp:
+            with open(str(temp_path), 'wb') as dl_file:
+                dl_file.write(dl_resp.read())
 
         # Verify download (basic size check)
         if temp_path.stat().st_size < 1_000_000:  # Less than 1MB = probably corrupt
@@ -149,7 +168,10 @@ def check_and_update():
         if controller_asset:
             try:
                 controller_temp = APP_DIR / 'activity_tracker_controller.exe.new'
-                urllib.request.urlretrieve(controller_asset["browser_download_url"], str(controller_temp))
+                ctrl_req = urllib.request.Request(controller_asset["browser_download_url"])
+                with urllib.request.urlopen(ctrl_req, context=ssl_ctx) as ctrl_resp:
+                    with open(str(controller_temp), 'wb') as ctrl_file:
+                        ctrl_file.write(ctrl_resp.read())
                 logging.info("New controller downloaded, will apply on next restart")
                 # Don't replace ourselves while running — just save for manual swap
             except Exception as e:
