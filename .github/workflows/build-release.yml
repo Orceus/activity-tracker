@@ -3,7 +3,10 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'  # Triggers on version tags like v1.0.0, v1.1.0
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
@@ -27,15 +30,78 @@ jobs:
       - name: Build controller exe
         run: pyinstaller monitor.spec --clean
 
-      - name: Create version file
+      - name: Prepare artifacts
         run: |
-          echo ${{ github.ref_name }} > dist/version.txt
+          mkdir release
+          copy dist\activity_tracker.exe release\activity_tracker.exe
+          copy dist\activity_tracker_controller.exe release\activity_tracker_controller.exe
+          echo ${{ github.ref_name }} > release\version.txt
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: release/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install psutil pynput supabase pyobjc-framework-Cocoa pyobjc-framework-Quartz
+
+      - name: Build tracker
+        run: |
+          pyinstaller --onefile --windowed --name activity_tracker activity_tracker.py
+
+      - name: Build controller
+        run: |
+          pyinstaller --onefile --windowed --name activity_tracker_controller monitor.py
+
+      - name: Prepare artifacts
+        run: |
+          mkdir release
+          cp dist/activity_tracker release/activity_tracker_macos
+          cp dist/activity_tracker_controller release/activity_tracker_controller_macos
+          echo ${{ github.ref_name }} > release/version.txt
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: release/
+
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: windows/
+
+      - name: Download macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: macos/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/activity_tracker.exe
-            dist/activity_tracker_controller.exe
-            dist/version.txt
+            windows/activity_tracker.exe
+            windows/activity_tracker_controller.exe
+            windows/version.txt
+            macos/activity_tracker_macos
+            macos/activity_tracker_controller_macos
           generate_release_notes: true
