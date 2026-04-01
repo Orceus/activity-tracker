@@ -1,0 +1,15 @@
+psutil>=5.9.0
+pynput>=1.7.6
+supabase>=2.0.0
+
+# Windows-specific dependencies
+pywin32>=306; sys_platform == "win32"
+
+# macOS-specific dependencies  
+pyobjc-framework-Cocoa>=9.0; sys_platform == "darwin"
+pyobjc-framework-Quartz>=9.0; sys_platform == "darwin"
+
+# Linux dependencies (optional - using system commands as fallback)
+# For Linux: install xdotool via package manager
+# Ubuntu/Debian: sudo apt-get install xdotool
+# Fedora: sudo dnf install xdotool 

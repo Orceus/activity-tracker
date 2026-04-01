@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pyinstaller:*)",
+      "Bash(dir:*)",
+      "Bash(python test_appdata_path.py:*)",
+      "Bash(del \"C:\\Users\\sozde\\Desktop\\ActivityTracker\\test_appdata_path.py\")",
+      "Bash(taskkill:*)",
+      "Read(//c/Users/sozde/Documents/ActivityX/keytrk_data/**)",
+      "Bash(./activity_tracker.exe --help)",
+      "Bash(findstr:*)",
+      "Bash(echo $USERPROFILE)",
+      "Read(//c/Users/sozde/Documents/**)",
+      "Bash(test_vars.bat)",
+      "Bash(cmd /c:*)",
+      "Bash(del \"C:\\Users\\sozde\\Desktop\\ActivityTracker\\Ready to distribute\\test_vars.bat\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
