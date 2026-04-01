@@ -1,0 +1,41 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0, v1.1.0
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install psutil pynput supabase pywin32
+
+      - name: Build tracker exe
+        run: pyinstaller activity_tracker.spec --clean
+
+      - name: Build controller exe
+        run: pyinstaller monitor.spec --clean
+
+      - name: Create version file
+        run: |
+          echo ${{ github.ref_name }} > dist/version.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/activity_tracker.exe
+            dist/activity_tracker_controller.exe
+            dist/version.txt
+          generate_release_notes: true
