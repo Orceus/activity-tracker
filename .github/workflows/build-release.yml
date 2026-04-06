@@ -1,9 +1,11 @@
-name: Build and Release
+name: ActivityX
+run-name: "ActivityX ${{ github.ref_name }}"
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,86 +24,60 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pyinstaller
-          pip install psutil pynput supabase pywin32 certifi
+          pip install -r requirements.txt
 
       - name: Build tracker exe
         run: pyinstaller activity_tracker.spec --clean
 
       - name: Build controller exe
-        run: pyinstaller monitor.spec --clean
+        run: pyinstaller activity_tracker_controller.spec --clean
 
-      - name: Prepare artifacts
+      - name: Write version.txt
+        shell: bash
         run: |
-          mkdir release
-          copy dist\activity_tracker.exe release\activity_tracker.exe
-          copy dist\activity_tracker_controller.exe release\activity_tracker_controller.exe
-          echo ${{ github.ref_name }} > release\version.txt
+          echo "${GITHUB_REF_NAME:-dev}" > dist/version.txt
+
+      - name: Copy supporting files
+        shell: cmd
+        run: |
+          copy setup.bat dist\setup.bat
+          copy config.py dist\config.py
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: release/
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller
-          pip install psutil pynput supabase pyobjc-framework-Cocoa pyobjc-framework-Quartz
-
-      - name: Build tracker
-        run: |
-          pyinstaller --onefile --windowed --name activity_tracker activity_tracker.py
-
-      - name: Build controller
-        run: |
-          pyinstaller --onefile --windowed --name activity_tracker_controller monitor.py
-
-      - name: Prepare artifacts
-        run: |
-          mkdir release
-          cp dist/activity_tracker release/activity_tracker_macos
-          cp dist/activity_tracker_controller release/activity_tracker_controller_macos
-          echo ${{ github.ref_name }} > release/version.txt
-
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-build
-          path: release/
+          name: ActivityX-Windows
+          path: dist/
+          retention-days: 30
 
   release:
-    needs: [build-windows, build-macos]
+    needs: [build-windows]
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download Windows build
         uses: actions/download-artifact@v4
         with:
-          name: windows-build
-          path: windows/
+          name: ActivityX-Windows
+          path: release/windows
 
-      - name: Download macOS build
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-build
-          path: macos/
+      - name: Zip release
+        run: |
+          cd release
+          zip -r ActivityX-Windows-${{ github.ref_name }}.zip windows/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            windows/activity_tracker.exe
-            windows/activity_tracker_controller.exe
-            windows/version.txt
-            macos/activity_tracker_macos
-            macos/activity_tracker_controller_macos
-          generate_release_notes: true
+            release/ActivityX-Windows-${{ github.ref_name }}.zip
+            release/windows/activity_tracker.exe
+            release/windows/activity_tracker_controller.exe
+            release/windows/version.txt
+          body: |
+            ## ActivityX Employee Tracker ${{ github.ref_name }}
+
+            ### Installation
+            1. Extract the zip
+            2. Run `setup.bat`
+            3. Done — tracker runs silently in the background

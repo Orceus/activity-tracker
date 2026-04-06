@@ -58,18 +58,19 @@ STALE_THRESHOLD_SECONDS = 600  # 10 minutes
 
 # Auto-update config
 GITHUB_REPO = "Orceus/activity-tracker"
-UPDATE_CHECK_INTERVAL = 3600  # 1 hour
+UPDATE_CHECK_INTERVAL = 21600  # 6 hours
 MAX_CRASH_COUNT = 3  # Rollback after this many crashes in 5 minutes
 
 
 def get_local_version():
-    """Read current version from version.txt"""
-    version_path = APP_DIR / 'version.txt'
-    try:
-        if version_path.exists():
-            return version_path.read_text().strip()
-    except Exception:
-        pass
+    """Read current version from version.txt — check AppData then exe's own folder."""
+    for base in [APP_DIR, Path(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)))]:
+        version_path = base / 'version.txt'
+        try:
+            if version_path.exists():
+                return version_path.read_text().strip()
+        except Exception:
+            pass
     return "v0.0.0"
 
 
@@ -79,13 +80,22 @@ def _get_ssl_context():
     try:
         import certifi
         return ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
+    except (ImportError, Exception):
         pass
     if sys.platform == 'win32':
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.load_default_certs()
+        try:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.load_default_certs(purpose=ssl.Purpose.SERVER_AUTH)
+            return ctx
+        except Exception:
+            pass
+    try:
+        return ssl.create_default_context()
+    except Exception:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
         return ctx
-    return ssl.create_default_context()
 
 
 def check_and_update():
@@ -93,19 +103,26 @@ def check_and_update():
     try:
         import urllib.request
         import urllib.error
+        import shutil
 
         local_version = get_local_version()
         logging.info("Checking for updates... current: %s", local_version)
 
+        def _parse_version(v):
+            """Parse 'v1.2.3' or '1.2.3' into tuple (1, 2, 3) for proper comparison."""
+            try:
+                return tuple(int(x) for x in v.lstrip('v').split('.'))
+            except Exception:
+                return (0, 0, 0)
+
         ssl_ctx = _get_ssl_context()
-        # Check latest release from GitHub API
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         req = urllib.request.Request(url, headers={"Accept": "application/vnd.github.v3+json"})
         with urllib.request.urlopen(req, timeout=15, context=ssl_ctx) as resp:
             release = json.loads(resp.read().decode())
 
         remote_version = release.get("tag_name", "")
-        if not remote_version or remote_version <= local_version:
+        if not remote_version or _parse_version(remote_version) <= _parse_version(local_version):
             logging.info("Already up to date (%s)", local_version)
             return False
 
@@ -129,62 +146,65 @@ def check_and_update():
         backup_path = APP_DIR / 'activity_tracker.exe.backup'
         if tracker_path.exists():
             try:
-                import shutil
                 shutil.copy2(str(tracker_path), str(backup_path))
-                logging.info("Backed up current tracker to %s", backup_path)
-            except Exception as e:
-                logging.error("Failed to backup: %s", e)
+            except Exception:
+                pass
 
         # Kill tracker before replacing
         kill_process('activity_tracker.exe')
         time.sleep(3)
 
         # Download new tracker
-        download_url = tracker_asset["browser_download_url"]
         temp_path = APP_DIR / 'activity_tracker.exe.tmp'
-        logging.info("Downloading %s...", download_url)
-        dl_req = urllib.request.Request(download_url)
+        dl_req = urllib.request.Request(tracker_asset["browser_download_url"])
         with urllib.request.urlopen(dl_req, context=ssl_ctx) as dl_resp:
             with open(str(temp_path), 'wb') as dl_file:
                 dl_file.write(dl_resp.read())
 
-        # Verify download (basic size check)
-        if temp_path.stat().st_size < 1_000_000:  # Less than 1MB = probably corrupt
-            logging.error("Downloaded file too small, aborting update")
-            temp_path.unlink()
+        # Verify download
+        if not temp_path.exists() or temp_path.stat().st_size < 1_000_000:
+            logging.error("Downloaded file missing or too small, aborting")
+            if temp_path.exists():
+                temp_path.unlink()
             start_activity_tracker()
             return False
 
-        # Replace exe
-        if tracker_path.exists():
-            tracker_path.unlink()
-        temp_path.rename(tracker_path)
+        # Replace exe — antivirus-safe: restore from backup if rename fails
+        try:
+            if tracker_path.exists():
+                tracker_path.unlink()
+            temp_path.rename(tracker_path)
+        except Exception as e:
+            logging.error("Failed to replace tracker exe: %s", e)
+            if not tracker_path.exists() and backup_path.exists():
+                shutil.copy2(str(backup_path), str(tracker_path))
+                logging.info("Restored tracker from backup")
+            if temp_path.exists():
+                temp_path.unlink()
+            start_activity_tracker()
+            return False
 
         # Update version file
         version_path = APP_DIR / 'version.txt'
         version_path.write_text(remote_version)
 
-        # Download new controller if available (save for next restart)
+        start_activity_tracker()
+        logging.info("Updated tracker to %s", remote_version)
+
+        # Download new controller for next restart
         if controller_asset:
             try:
-                controller_temp = APP_DIR / 'activity_tracker_controller.exe.new'
+                controller_new = APP_DIR / 'activity_tracker_controller.exe.new'
                 ctrl_req = urllib.request.Request(controller_asset["browser_download_url"])
                 with urllib.request.urlopen(ctrl_req, context=ssl_ctx) as ctrl_resp:
-                    with open(str(controller_temp), 'wb') as ctrl_file:
+                    with open(str(controller_new), 'wb') as ctrl_file:
                         ctrl_file.write(ctrl_resp.read())
-                logging.info("New controller downloaded, will apply on next restart")
-                # Don't replace ourselves while running — just save for manual swap
+                logging.info("Downloaded new controller, will apply on next restart")
             except Exception as e:
                 logging.warning("Failed to download new controller: %s", e)
 
-        # Start new tracker
-        start_activity_tracker()
-        logging.info("Updated to %s successfully", remote_version)
         return True
 
-    except urllib.error.URLError as e:
-        logging.warning("Update check failed (network): %s", e)
-        return False
     except Exception as e:
         logging.error("Update check error: %s", e, exc_info=True)
         return False
@@ -197,14 +217,12 @@ def check_crash_and_rollback():
     crash_counter_path = APP_DIR / 'crash_count.txt'
 
     if not backup_path.exists():
-        return  # No backup to rollback to
+        return
 
-    # Read crash counter
     crash_count = 0
     try:
         if crash_counter_path.exists():
             content = crash_counter_path.read_text().strip().split('\n')
-            # Count crashes in last 5 minutes
             recent = [float(t) for t in content if time.time() - float(t) < 300]
             crash_count = len(recent)
     except Exception:
@@ -217,7 +235,6 @@ def check_crash_and_rollback():
             time.sleep(2)
             import shutil
             shutil.copy2(str(backup_path), str(tracker_path))
-            # Clear crash counter
             crash_counter_path.unlink(missing_ok=True)
             start_activity_tracker()
             logging.info("Rollback complete")
@@ -251,9 +268,21 @@ def upload_optimized_batches():
     if not documents_path.exists():
         return
 
-    batch_files = list(documents_path.glob("optimized_batch_*.json"))
+    batch_files = sorted(documents_path.glob("optimized_batch_*.json"))
     if not batch_files:
         return
+
+    # Cap at 500 files — delete oldest if over limit
+    MAX_OFFLINE_BATCHES = 500
+    if len(batch_files) > MAX_OFFLINE_BATCHES:
+        excess = batch_files[:-MAX_OFFLINE_BATCHES]
+        for old_file in excess:
+            try:
+                old_file.unlink()
+            except Exception:
+                pass
+        batch_files = batch_files[-MAX_OFFLINE_BATCHES:]
+        logging.warning("Deleted %d old offline batches (over %d limit)", len(excess), MAX_OFFLINE_BATCHES)
 
     supabase_client = init_supabase_client()
     if not supabase_client:
@@ -265,11 +294,8 @@ def upload_optimized_batches():
             success = upload_single_batch(supabase_client, batch_file)
             if success:
                 successful_uploads.append(batch_file)
-            else:
-                break
         except Exception as e:
             logging.error("Error uploading %s: %s", batch_file.name, e)
-            break
 
     for file_path in successful_uploads:
         try:
@@ -286,12 +312,20 @@ def upload_single_batch(supabase_client, file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
+        date_str = data.get('d')
+        start_str = data.get('s')
+        end_str = data.get('e')
+        if date_str and start_str and 'T' not in str(start_str):
+            start_str = f"{date_str}T{start_str}"
+        if date_str and end_str and 'T' not in str(end_str):
+            end_str = f"{date_str}T{end_str}"
+
         insert_data = {
             'batch_id': file_path.stem,
             'user_id': data.get('u'),
-            'date_tracked': data.get('d'),
-            'batch_start_time': data.get('s'),
-            'batch_end_time': data.get('e'),
+            'date_tracked': date_str,
+            'batch_start_time': start_str,
+            'batch_end_time': end_str,
             'total_time_seconds': data.get('tt', 0),
             'active_time_seconds': data.get('at', 0),
             'inactive_time_seconds': data.get('it', 0),
@@ -336,12 +370,13 @@ def kill_process(process_name):
 def start_activity_tracker():
     tracker_path = APP_DIR / 'activity_tracker.exe'
     if not tracker_path.exists():
-        # Fallback: check Documents path (legacy installs)
-        legacy_path = Path.home() / 'Documents' / 'ActivityX' / 'activity_tracker.exe'
-        if legacy_path.exists():
-            tracker_path = legacy_path
+        # Fallback: check exe's own directory
+        own_dir = Path(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)))
+        candidate = own_dir / 'activity_tracker.exe'
+        if candidate.exists():
+            tracker_path = candidate
         else:
-            logging.error("activity_tracker.exe not found at %s or %s", APP_DIR, legacy_path)
+            logging.error("activity_tracker.exe not found at %s or %s", APP_DIR, own_dir)
             return False
     try:
         subprocess.Popen(
@@ -360,16 +395,10 @@ def start_activity_tracker():
 
 
 def check_last_alive():
-    """Check if the tracker is actually producing data (not just running as zombie).
-    Returns True if healthy, False if stale or missing."""
+    """Check if the tracker is actually producing data (not just running as zombie)."""
     alive_path = APP_DIR / 'last_alive.txt'
     if not alive_path.exists():
-        # Also check legacy path
-        legacy_alive = Path.home() / 'Documents' / 'ActivityX' / 'last_alive.txt'
-        if legacy_alive.exists():
-            alive_path = legacy_alive
-        else:
-            return False  # No alive file at all
+        return False
 
     try:
         content = alive_path.read_text().strip()
@@ -387,10 +416,18 @@ def check_last_alive():
 def _get_pc_name():
     """Get the PC identifier (matches tracker's user_id format)."""
     try:
-        from config import get_user_id
-        return get_user_id()
+        import importlib.util
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        spec = importlib.util.spec_from_file_location("config", os.path.join(base_dir, 'config.py'))
+        cfg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cfg)
+        return cfg.get_user_id()
     except Exception:
-        return f"user_{platform.node()}" if 'platform' in dir() else f"user_{os.environ.get('COMPUTERNAME', 'unknown')}"
+        import platform
+        return f"{os.environ.get('USERNAME', os.environ.get('USER', 'user'))}@{platform.node()}"
 
 
 def _read_last_lines(file_path, n=100):
@@ -432,35 +469,62 @@ def upload_logs_to_supabase():
     except Exception:
         pass
 
-    # Upload tracker log
-    tracker_log = _read_last_lines(APP_DIR / 'tracker.log', 100)
-    if tracker_log:
+    # Upload logs
+    for log_type, filename, lines in [('tracker', 'tracker.log', 100), ('controller', 'controller.log', 50)]:
+        log_path = APP_DIR / filename
+        content = _read_last_lines(log_path, lines)
+        if content:
+            try:
+                supabase_client.table("tracker_logs").insert({
+                    'pc_name': pc_name,
+                    'log_type': log_type,
+                    'log_content': content,
+                    'last_alive': last_alive,
+                    'tracker_running': tracker_running,
+                }).execute()
+                logging.info("Uploaded %s log to Supabase", log_type)
+                # Truncate log after successful upload
+                try:
+                    if log_type != 'controller':
+                        open(str(log_path), 'w').close()
+                except Exception:
+                    pass
+            except Exception as e:
+                logging.error("Failed to upload %s log: %s", log_type, e)
+        # Safety cap: if log file exceeds 5MB, keep only last 1MB
         try:
-            supabase_client.table("tracker_logs").insert({
-                'pc_name': pc_name,
-                'log_type': 'tracker',
-                'log_content': tracker_log,
-                'last_alive': last_alive,
-                'tracker_running': tracker_running,
-            }).execute()
-            logging.info("Uploaded tracker log to Supabase")
-        except Exception as e:
-            logging.error("Failed to upload tracker log: %s", e)
+            if log_path.exists() and log_path.stat().st_size > 5 * 1024 * 1024:
+                with open(str(log_path), 'r', encoding='utf-8', errors='replace') as f:
+                    f.seek(-1024 * 1024, 2)
+                    f.readline()
+                    tail = f.read()
+                with open(str(log_path), 'w', encoding='utf-8') as f:
+                    f.write(tail)
+        except Exception:
+            pass
 
-    # Upload controller log
-    controller_log = _read_last_lines(APP_DIR / 'controller.log', 50)
-    if controller_log:
-        try:
-            supabase_client.table("tracker_logs").insert({
-                'pc_name': pc_name,
-                'log_type': 'controller',
-                'log_content': controller_log,
-                'last_alive': last_alive,
-                'tracker_running': tracker_running,
-            }).execute()
-            logging.info("Uploaded controller log to Supabase")
-        except Exception as e:
-            logging.error("Failed to upload controller log: %s", e)
+
+def _ensure_scheduled_tasks():
+    """Always register Windows Scheduled Tasks pointing to current exe."""
+    if sys.platform != 'win32':
+        return
+    try:
+        exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+        subprocess.call(
+            ['schtasks', '/Create', '/TN', 'ActivityX Controller',
+             '/TR', f'"{exe_path}"', '/SC', 'MINUTE', '/MO', '5', '/F'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        subprocess.call(
+            ['schtasks', '/Create', '/TN', 'ActivityX Controller Startup',
+             '/TR', f'"{exe_path}"', '/SC', 'ONLOGON', '/F'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        logging.info("Registered Windows Scheduled Tasks → %s", exe_path)
+    except Exception as e:
+        logging.error("Failed to register scheduled tasks: %s", e)
 
 
 def main():
@@ -470,6 +534,33 @@ def main():
         ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
     logging.info("Controller started")
+    _ensure_scheduled_tasks()
+
+    # Check if a new controller was downloaded — swap and let scheduled task restart
+    if sys.platform == 'win32' and getattr(sys, 'frozen', False):
+        new_controller = APP_DIR / 'activity_tracker_controller.exe.new'
+        if new_controller.exists() and new_controller.stat().st_size > 1_000_000:
+            try:
+                current_exe = Path(sys.executable)
+                old_exe = current_exe.with_suffix('.exe.old')
+                if old_exe.exists():
+                    old_exe.unlink()
+                current_exe.rename(old_exe)
+                new_controller.rename(current_exe)
+                logging.info("Controller updated, exiting. Scheduled task will start new version.")
+                sys.exit(0)
+            except Exception as e:
+                logging.error("Controller self-update failed: %s", e)
+
+    # Report version immediately on startup
+    try:
+        _sb = init_supabase_client()
+        if _sb:
+            _sb.table("employees").update({
+                "tracker_version": get_local_version()
+            }).eq("pc_name", _get_pc_name()).execute()
+    except Exception:
+        pass
 
     # Wait 1 minute on first startup to let tracker initialize
     time.sleep(60)
@@ -477,6 +568,8 @@ def main():
     last_batch_upload = time.time()
     last_log_upload = time.time()
     last_update_check = 0  # Check on first loop
+    last_tracker_start = time.time()  # Grace period for stale check
+    last_loop_time = time.time()
     batch_upload_interval = 180  # 3 minutes
     log_upload_interval = 1800  # 30 minutes
 
@@ -484,24 +577,35 @@ def main():
         try:
             current_time = time.time()
 
+            # Detect wake from sleep — if loop gap > 2 minutes, system was sleeping
+            if current_time - last_loop_time > 120:
+                logging.info("Detected wake from sleep (gap: %.0fs), resetting grace period", current_time - last_loop_time)
+                last_tracker_start = current_time
+            last_loop_time = current_time
+
             process_running = is_process_running('activity_tracker.exe')
-            tracker_healthy = check_last_alive()
+            # Only check staleness after tracker has had time to sync (10 min grace)
+            tracker_healthy = check_last_alive() if (current_time - last_tracker_start > STALE_THRESHOLD_SECONDS) else True
 
             if not process_running:
                 logging.warning("activity_tracker.exe not running, restarting...")
-                record_crash()  # Track for rollback
-                check_crash_and_rollback()  # Rollback if too many crashes
+                record_crash()
+                check_crash_and_rollback()
                 start_activity_tracker()
+                last_tracker_start = time.time()
             elif process_running and not tracker_healthy:
-                logging.warning("Tracker process alive but stale (no data in %ds). Force-killing...", STALE_THRESHOLD_SECONDS)
+                logging.warning("Tracker process alive but stale. Force-killing...")
                 kill_process('activity_tracker.exe')
                 time.sleep(5)
                 start_activity_tracker()
+                last_tracker_start = time.time()
 
-            # Auto-update check every hour
+            # Auto-update check
             if current_time - last_update_check >= UPDATE_CHECK_INTERVAL:
                 try:
-                    check_and_update()
+                    updated = check_and_update()
+                    if updated:
+                        last_tracker_start = time.time()
                 except Exception:
                     pass
                 last_update_check = current_time
@@ -535,6 +639,5 @@ if __name__ == '__main__':
         main()
     except Exception as e:
         logging.critical("Controller fatal error: %s", e, exc_info=True)
-        # Keep process alive even on fatal error
         while True:
             time.sleep(60)
