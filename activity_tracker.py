@@ -974,6 +974,70 @@ class OptimizedDataSyncer:
         
         # Created inactive batch
 
+    def _get_public_ip(self):
+        """Get public IP address via external service"""
+        try:
+            import urllib.request
+            import ssl
+            ctx = ssl.create_default_context()
+            response = urllib.request.urlopen('https://api.ipify.org', timeout=5, context=ctx)
+            ip = response.read().decode('utf-8').strip()
+            if ip:
+                return ip
+        except Exception:
+            pass
+        try:
+            import urllib.request
+            response = urllib.request.urlopen('http://api.ipify.org', timeout=5)
+            ip = response.read().decode('utf-8').strip()
+            if ip:
+                return ip
+        except Exception:
+            pass
+        return None
+
+    def _get_all_local_ips(self):
+        """Get all local/internal IP addresses from all network interfaces"""
+        ips = []
+        try:
+            import socket
+            hostname = socket.gethostname()
+            try:
+                addr_infos = socket.getaddrinfo(hostname, None, socket.AF_INET)
+                for info in addr_infos:
+                    ip = info[4][0]
+                    if ip and ip != '127.0.0.1' and ip not in ips:
+                        ips.append(ip)
+            except Exception:
+                pass
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                primary_ip = s.getsockname()[0]
+                s.close()
+                if primary_ip and primary_ip != '127.0.0.1' and primary_ip not in ips:
+                    ips.append(primary_ip)
+            except Exception:
+                pass
+            if sys.platform == 'win32':
+                try:
+                    result = subprocess.run(
+                        ['ipconfig'],
+                        capture_output=True, text=True, timeout=5,
+                        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                    )
+                    for line in result.stdout.splitlines():
+                        line = line.strip()
+                        if 'IPv4' in line and ':' in line:
+                            ip = line.split(':', 1)[1].strip()
+                            if ip and ip != '127.0.0.1' and ip not in ips:
+                                ips.append(ip)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return ips if ips else None
+
     def _sync_to_supabase_forced(self):
         """Force sync to Supabase, always creating a batch even if minimal data"""
         # Attempting FORCED sync
@@ -987,20 +1051,39 @@ class OptimizedDataSyncer:
             return
         
         batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
+        # Detect IP for office presence tracking
+        ip_address = self._get_public_ip()
+        local_ips = self._get_all_local_ips()
+        if ip_address:
+            optimized_data['ip'] = ip_address
+        if local_ips:
+            optimized_data['li'] = local_ips
+
+        # Combine date+time for batch timestamps
+        _date = optimized_data['d']
+        _start = optimized_data['s']
+        _end = optimized_data['e']
+        if _date and _start and 'T' not in str(_start):
+            _start = f"{_date}T{_start}"
+        if _date and _end and 'T' not in str(_end):
+            _end = f"{_date}T{_end}"
+
         # Prepare data for database
         db_data = {
             'batch_id': batch_id,
             'user_id': self.user_id,
-            'date_tracked': optimized_data['d'],
-            'batch_start_time': optimized_data['s'],
-            'batch_end_time': optimized_data['e'],
+            'date_tracked': _date,
+            'batch_start_time': _start,
+            'batch_end_time': _end,
             'total_time_seconds': optimized_data['tt'],
             'active_time_seconds': optimized_data['at'],
             'inactive_time_seconds': optimized_data['it'],
+            'ip_address': ip_address,
+            'local_ips': local_ips,
             'batch_data': optimized_data
         }
-        
+
         # Try to upload to Supabase
         if self.supabase_client:
             try:
@@ -1371,17 +1454,36 @@ class OptimizedDataSyncer:
             return
         
         batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Prepare data for database - only include fields that exist in the schema
+
+        # Detect IP for office presence tracking
+        ip_address = self._get_public_ip()
+        local_ips = self._get_all_local_ips()
+        if ip_address:
+            optimized_data['ip'] = ip_address
+        if local_ips:
+            optimized_data['li'] = local_ips
+
+        # Combine date+time for batch timestamps
+        _date = optimized_data['d']
+        _start = optimized_data['s']
+        _end = optimized_data['e']
+        if _date and _start and 'T' not in str(_start):
+            _start = f"{_date}T{_start}"
+        if _date and _end and 'T' not in str(_end):
+            _end = f"{_date}T{_end}"
+
+        # Prepare data for database
         db_data = {
             'batch_id': batch_id,
             'user_id': self.user_id,
-            'date_tracked': optimized_data['d'],
-            'batch_start_time': optimized_data['s'],
-            'batch_end_time': optimized_data['e'],
+            'date_tracked': _date,
+            'batch_start_time': _start,
+            'batch_end_time': _end,
             'total_time_seconds': optimized_data['tt'],
             'active_time_seconds': optimized_data['at'],
             'inactive_time_seconds': optimized_data['it'],
+            'ip_address': ip_address,
+            'local_ips': local_ips,
             'batch_data': optimized_data
         }
         

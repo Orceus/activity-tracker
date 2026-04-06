@@ -329,6 +329,8 @@ def upload_single_batch(supabase_client, file_path):
             'total_time_seconds': data.get('tt', 0),
             'active_time_seconds': data.get('at', 0),
             'inactive_time_seconds': data.get('it', 0),
+            'ip_address': data.get('ip'),
+            'local_ips': data.get('li'),
             'batch_data': data
         }
 
