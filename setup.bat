@@ -38,10 +38,7 @@ timeout /t 2 /nobreak >nul
 set "OLD_DIR=%USERPROFILE%\Documents\ActivityX"
 if exist "!OLD_DIR!" (
     echo Removing old installation from Documents...
-    del "!OLD_DIR!\activity_tracker.exe" >nul 2>&1
-    del "!OLD_DIR!\activity_tracker_controller.exe" >nul 2>&1
-    del "!OLD_DIR!\config.py" >nul 2>&1
-    del "!OLD_DIR!\requirements.txt" >nul 2>&1
+    rmdir /S /Q "!OLD_DIR!" >nul 2>&1
 )
 
 :: ── Delete old exe names from AppData (migration from old naming) ───────────
