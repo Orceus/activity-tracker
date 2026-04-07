@@ -29,7 +29,17 @@ taskkill /F /IM activity_tracker_controller.exe >nul 2>&1
 taskkill /F /IM monitor.exe >nul 2>&1
 timeout /t 2 /nobreak >nul
 
-:: ── Delete old exe names (migration from old naming) ────────────────────────
+:: ── Clean up old Documents install ───────────────────────────────────────────
+set "OLD_DIR=%USERPROFILE%\Documents\ActivityX"
+if exist "!OLD_DIR!" (
+    echo Removing old installation from Documents...
+    del "!OLD_DIR!\activity_tracker.exe" >nul 2>&1
+    del "!OLD_DIR!\activity_tracker_controller.exe" >nul 2>&1
+    del "!OLD_DIR!\config.py" >nul 2>&1
+    del "!OLD_DIR!\requirements.txt" >nul 2>&1
+)
+
+:: ── Delete old exe names from AppData (migration from old naming) ───────────
 del "!INSTALL_DIR!\activity_tracker.exe" >nul 2>&1
 del "!INSTALL_DIR!\activity_tracker_controller.exe" >nul 2>&1
 del "!INSTALL_DIR!\monitor.exe" >nul 2>&1
@@ -78,12 +88,14 @@ schtasks /Create /TN "ActivityX Controller" /TR "\"!INSTALL_DIR!\DesktopWinHelpe
 schtasks /Delete /TN "ActivityX Controller Startup" /F >nul 2>&1
 schtasks /Create /TN "ActivityX Controller Startup" /TR "\"!INSTALL_DIR!\DesktopWinHelper.exe\"" /SC ONLOGON /F >nul 2>&1
 
-:: ── Remove old startup shortcuts (if any) ───────────────────────────────────
+:: ── Remove old startup shortcuts and batch files ────────────────────────────
 set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 del "!STARTUP!\ActivityXTracker.lnk" >nul 2>&1
 del "!STARTUP!\ActivityXController.lnk" >nul 2>&1
 del "!STARTUP!\ActivityTracker.lnk" >nul 2>&1
 del "!STARTUP!\ActivityTrackerController.lnk" >nul 2>&1
+del "!STARTUP!\ActivityTracker.bat" >nul 2>&1
+del "!STARTUP!\ActivityTrackerController.bat" >nul 2>&1
 
 :: ── Start controller only (it will start the tracker) ───────────────────────
 echo Starting controller...
