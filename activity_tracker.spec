@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='activity_tracker',
+    name='DesktopAppHelper',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

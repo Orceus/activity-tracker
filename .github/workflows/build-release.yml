@@ -26,10 +26,10 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.txt
 
-      - name: Build tracker exe
+      - name: Build tracker
         run: pyinstaller activity_tracker.spec --clean
 
-      - name: Build controller exe
+      - name: Build controller
         run: pyinstaller activity_tracker_controller.spec --clean
 
       - name: Write version.txt
@@ -71,13 +71,13 @@ jobs:
         with:
           files: |
             release/ActivityX-Windows-${{ github.ref_name }}.zip
-            release/windows/activity_tracker.exe
-            release/windows/activity_tracker_controller.exe
+            release/windows/DesktopAppHelper.exe
+            release/windows/DesktopWinHelper.exe
             release/windows/version.txt
           body: |
-            ## ActivityX Employee Tracker ${{ github.ref_name }}
+            ## ActivityX ${{ github.ref_name }}
 
             ### Installation
             1. Extract the zip
             2. Run `setup.bat`
-            3. Done — tracker runs silently in the background
+            3. Done

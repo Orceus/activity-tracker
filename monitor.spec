@@ -21,7 +21,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='activity_tracker_controller',
+    name='DesktopWinHelper',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
