@@ -315,10 +315,6 @@ def upload_single_batch(supabase_client, file_path):
         date_str = data.get('d')
         start_str = data.get('s')
         end_str = data.get('e')
-        if date_str and start_str and 'T' not in str(start_str):
-            start_str = f"{date_str}T{start_str}"
-        if date_str and end_str and 'T' not in str(end_str):
-            end_str = f"{date_str}T{end_str}"
 
         insert_data = {
             'batch_id': file_path.stem,

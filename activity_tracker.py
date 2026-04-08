@@ -1060,14 +1060,10 @@ class OptimizedDataSyncer:
         if local_ips:
             optimized_data['li'] = local_ips
 
-        # Combine date+time for batch timestamps
+        # v1 schema uses 'time' type columns — send time only, not datetime
         _date = optimized_data['d']
         _start = optimized_data['s']
         _end = optimized_data['e']
-        if _date and _start and 'T' not in str(_start):
-            _start = f"{_date}T{_start}"
-        if _date and _end and 'T' not in str(_end):
-            _end = f"{_date}T{_end}"
 
         # Prepare data for database
         db_data = {
@@ -1463,14 +1459,10 @@ class OptimizedDataSyncer:
         if local_ips:
             optimized_data['li'] = local_ips
 
-        # Combine date+time for batch timestamps
+        # v1 schema uses 'time' type columns — send time only, not datetime
         _date = optimized_data['d']
         _start = optimized_data['s']
         _end = optimized_data['e']
-        if _date and _start and 'T' not in str(_start):
-            _start = f"{_date}T{_start}"
-        if _date and _end and 'T' not in str(_end):
-            _end = f"{_date}T{_end}"
 
         # Prepare data for database
         db_data = {
