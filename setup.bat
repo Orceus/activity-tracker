@@ -2,17 +2,17 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
-:: ── Check for Administrator ──────────────────────────────────────────────────
-set "SETUP_DIR=%~dp0"
+:: ── Auto-elevate to Administrator ────────────────────────────────────────────
 net session >nul 2>&1
 if %errorLevel% neq 0 (
-    echo.
-    echo  Bu kurulumu yonetici olarak calistirmaniz gerekiyor.
-    echo  Sag tiklayin ve "Yonetici olarak calistir" secin.
-    echo.
-    pause
+    echo Requesting administrator privileges...
+    set "SCRIPT=%~f0"
+    set "SRCDIR=%~dp0"
+    powershell -Command "Start-Process cmd -Verb RunAs -ArgumentList '/c cd /d \"%SRCDIR%\" && \"%SCRIPT%\"'"
     exit /b
 )
+
+set "SETUP_DIR=%~dp0"
 
 echo ========================================
 echo    ActivityX Setup
