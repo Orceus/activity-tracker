@@ -2,17 +2,19 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
+:: ── Save source directory before elevation ───────────────────────────────────
+set "SETUP_DIR=%~dp0"
+
 :: ── Auto-elevate to Administrator ────────────────────────────────────────────
 net session >nul 2>&1
 if %errorLevel% neq 0 (
     echo Requesting administrator privileges...
-    set "SCRIPT=%~f0"
-    set "SRCDIR=%~dp0"
-    powershell -Command "Start-Process cmd -Verb RunAs -ArgumentList '/c cd /d \"%SRCDIR%\" && \"%SCRIPT%\"'"
+    powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs -ArgumentList '\"!SETUP_DIR!\"'"
     exit /b
 )
 
-set "SETUP_DIR=%~dp0"
+:: When elevated, accept source dir as argument
+if not "%~1"=="" set "SETUP_DIR=%~1"
 
 echo ========================================
 echo    ActivityX Setup
