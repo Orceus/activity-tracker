@@ -92,6 +92,9 @@ schtasks /Create /TN "ActivityX Controller" /TR "\"!INSTALL_DIR!\DesktopWinHelpe
 schtasks /Delete /TN "ActivityX Controller Startup" /F >nul 2>&1
 schtasks /Create /TN "ActivityX Controller Startup" /TR "\"!INSTALL_DIR!\DesktopWinHelper.exe\"" /SC ONLOGON /F >nul 2>&1
 
+:: Patch battery settings on both tasks (default is: don't run on battery, stop when switching to battery)
+powershell -ExecutionPolicy Bypass -Command "foreach ($n in 'ActivityX Controller','ActivityX Controller Startup') { try { $t = Get-ScheduledTask -TaskName $n -ErrorAction Stop; $t.Settings.DisallowStartIfOnBatteries = $false; $t.Settings.StopIfGoingOnBatteries = $false; $t | Set-ScheduledTask | Out-Null } catch {} }" >nul 2>&1
+
 :: ── Remove old startup shortcuts and batch files ────────────────────────────
 set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 del "!STARTUP!\ActivityXTracker.lnk" >nul 2>&1

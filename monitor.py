@@ -520,9 +520,32 @@ def _ensure_scheduled_tasks():
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
+        # Patch battery settings (default tasks don't run on battery)
+        _patch_tasks_battery_settings()
         logging.info("Registered Windows Scheduled Tasks → %s", exe_path)
     except Exception as e:
         logging.error("Failed to register scheduled tasks: %s", e)
+
+
+def _patch_tasks_battery_settings():
+    """Allow tasks to start on battery and not stop when switching to battery."""
+    if sys.platform != 'win32':
+        return
+    ps_cmd = (
+        "foreach ($n in 'ActivityX Controller','ActivityX Controller Startup') { "
+        "try { $t = Get-ScheduledTask -TaskName $n -ErrorAction Stop; "
+        "$t.Settings.DisallowStartIfOnBatteries = $false; "
+        "$t.Settings.StopIfGoingOnBatteries = $false; "
+        "$t | Set-ScheduledTask | Out-Null } catch {} }"
+    )
+    try:
+        subprocess.call(
+            ['powershell', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+    except Exception as e:
+        logging.error("Failed to patch battery settings: %s", e)
 
 
 def main():
